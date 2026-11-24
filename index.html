@@ -168,6 +168,13 @@ h3.sub{font-size:22px;margin:18px 0 8px}
 .map #ph{position:absolute;top:0;bottom:0;left:0;width:2px;margin-left:-1px;background:#fff;box-shadow:0 0 8px #ffffffaa;pointer-events:none}
 .map.off #ph{display:none}
 .nxt{font-size:14px;color:var(--fone)}
+.kt{display:flex;align-items:center;gap:4px;background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:3px 6px}
+.kt[hidden]{display:none}
+.kt button{min-width:40px;min-height:40px;padding:0;font-size:20px;background:transparent;border-color:transparent}
+.kt b{font:700 21px "Barlow Condensed","Arial Narrow",system-ui,sans-serif;min-width:58px;text-align:center;font-variant-numeric:tabular-nums}
+.kt .dim{margin-left:4px}
+.kt b.chg{color:var(--fone)}
+#ktApply{min-height:38px;padding:0 12px;font-size:15px;background:var(--fone);border-color:var(--fone);color:#2b1a00;font-weight:700}
 #stageBtn{background:var(--pa);border-color:var(--pa);color:#001c33;font-weight:700}
 .prefs .chk{font-size:14px;color:var(--ink);align-items:flex-start;gap:10px;min-height:40px}
 .prefs .chk input{flex:none;margin-top:2px}
@@ -225,6 +232,7 @@ h3.sub{font-size:22px;margin:18px 0 8px}
     <button id="fadeNext" title="Fade de 4 s e carrega a próxima do setlist">Fade → próxima</button>
     <button id="split" aria-pressed="false" title="Esquerdo = fone, direito = PA">Split L/R</button>
     <button id="orig" hidden title="Ouvir a gravação original">Original</button>
+    <div class="kt" id="kt" hidden><span class="dim">Tom</span><button data-k="k-" aria-label="Baixar meio tom">−</button><b id="ktKey">—</b><button data-k="k+" aria-label="Subir meio tom">+</button><span class="dim">Andamento</span><button data-k="t-" aria-label="Mais lento">−</button><b id="ktTempo">100%</b><button data-k="t+" aria-label="Mais rápido">+</button><button id="ktApply" hidden>Aplicar</button></div>
     <div class="master"><span>Master</span><input type="range" id="master" min="0" max="100" value="80" aria-label="Volume master"><span id="mdb" class="cond">0 dB</span></div>
   </div>
 </header>
@@ -684,11 +692,11 @@ function renderMem(){const n=CACHE.size,mb=Math.round(cacheBytes()/1048576);$('#
 function renderHeader(){
   const s=st.cur;
   $('#title').textContent=s?s.name:'Nenhuma música';
-  if(!s){$('#nextInfo').textContent='';$('#meta').textContent='Importe as faixas de uma música para começar';$('#tdur').textContent='0:00';$('#orig').hidden=true;return;}
+  if(!s){paintKT();$('#nextInfo').textContent='';$('#meta').textContent='Importe as faixas de uma música para começar';$('#tdur').textContent='0:00';$('#orig').hidden=true;return;}
   const k=s.key?(s.semis?'Tom '+s.key+' → '+keyName(s.key,s.semis):'Tom '+s.key):'';
   const bpm=s.bpm?Math.round(s.bpm*(s.tempo||1)*10)/10+' BPM':'';
   $('#meta').textContent=[s.type==='clickpad'?'Só click e pad':'',k,bpm,s.tempo&&s.tempo!==1?Math.round(s.tempo*100)+'%':'',s.type!=='clickpad'?st.tracks.length+' faixas':'',st.setIdx>=0?'Setlist '+(st.setIdx+1)+'/'+st.setlist.length:''].filter(Boolean).join(' · ');
-  $('#tdur').textContent=fmt(st.segs.length?arrTotal():st.dur);$('#nextInfo').textContent=nextSongTxt();
+  $('#tdur').textContent=fmt(st.segs.length?arrTotal():st.dur);$('#nextInfo').textContent=nextSongTxt();paintKT();
   $('#orig').hidden=!st.tracks.some(t=>t.s.bus==='Original');
 }
 function arrTotal(){let t=0;st.segs.forEach(sg=>t+=sg.e-sg.s);return t;}
@@ -885,6 +893,7 @@ function hlChart(force){
 
 /* ---------- desenho: ajustes ---------- */
 function renderAdjust(){
+  paintKT();
   const v=$('#v-adj'),s=st.cur;
   if(!s){v.innerHTML='<div class="empty">Carregue uma música para ajustar tom, andamento e início/fim.</div>';return;}
   const cp=s.type==='clickpad',pd=st.pend,changed=pd.semis!==(s.semis||0)||Math.abs(pd.tempo-(s.tempo||1))>0.001;
@@ -1083,11 +1092,23 @@ $('#v-chart').addEventListener('click',e=>{
 $('#v-chart').addEventListener('change',e=>{if(e.target.id==='follow'){st.follow=e.target.checked;meta('follow',st.follow);hlChart(true);}});
 
 /* ---------- eventos: ajustes ---------- */
+function pendStep(a){const pd=st.pend;
+  if(a==='k-'||a==='k+')pd.semis=Math.max(-6,Math.min(6,pd.semis+(a==='k+'?1:-1)));
+  if(a==='t-'||a==='t+')pd.tempo=Math.round(Math.max(0.7,Math.min(1.3,pd.tempo+(a==='t+'?0.01:-0.01)))*100)/100;
+  renderAdjust();}
+function applyPend(){const s=st.cur,pd=st.pend;if(!s)return;s.semis=pd.semis;s.tempo=pd.tempo;saveSong();dropCache(s.id);if(!isShift(s))s.tracks.forEach((t,i)=>del('pcm',s.id+':'+i).catch(()=>{}));loadSong(s.id,st.setIdx);}
+function paintKT(){
+  const box=$('#kt'),s=st.cur;box.hidden=!s||isCP()||!st.tracks.length;if(box.hidden)return;
+  const pd=st.pend,kc=pd.semis!==(s.semis||0),tc=Math.abs(pd.tempo-(s.tempo||1))>0.001;
+  $('#ktKey').textContent=s.key?keyName(s.key,pd.semis):(pd.semis>0?'+':'')+pd.semis;$('#ktKey').classList.toggle('chg',kc);
+  $('#ktTempo').textContent=Math.round(pd.tempo*100)+'%';$('#ktTempo').classList.toggle('chg',tc);
+  $('#ktApply').hidden=!(kc||tc);
+}
+$('#kt').addEventListener('click',e=>{const b=e.target.closest('button');if(!b||!st.cur)return;if(b.id==='ktApply'){applyPend();return;}pendStep(b.dataset.k);});
 $('#v-adj').addEventListener('click',e=>{
   const b=e.target.closest('[data-a]');if(!b)return;const s=st.cur,a=b.dataset.a,pd=st.pend;
-  if(a==='k-'||a==='k+'){pd.semis=Math.max(-6,Math.min(6,pd.semis+(a==='k+'?1:-1)));renderAdjust();return;}
-  if(a==='t-'||a==='t+'){pd.tempo=Math.round(Math.max(0.7,Math.min(1.3,pd.tempo+(a==='t+'?0.01:-0.01)))*100)/100;renderAdjust();return;}
-  if(a==='apply'){s.semis=pd.semis;s.tempo=pd.tempo;saveSong();dropCache(s.id);if(!isShift(s))s.tracks.forEach((t,i)=>del('pcm',s.id+':'+i).catch(()=>{}));loadSong(s.id,st.setIdx);return;}
+  if(a==='k-'||a==='k+'||a==='t-'||a==='t+'){pendStep(a);return;}
+  if(a==='apply'){applyPend();return;}
   if(a==='in'){s.startAt=curInfo().t*st.lt;if(s.endAt&&s.endAt<=s.startAt)s.endAt=null;saveSong();rebuild();renderAdjust();toast('Início definido');return;}
   if(a==='out'){const t=curInfo().t*st.lt;if(t<=(s.startAt||0)){toast('O fim precisa vir depois do início');return;}s.endAt=t;saveSong();rebuild();renderAdjust();toast('Fim definido');return;}
   if(a==='clr'){s.startAt=0;s.endAt=null;saveSong();rebuild();renderAdjust();return;}
